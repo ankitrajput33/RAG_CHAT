@@ -2,3 +2,6 @@
 __pycache__/
 chroma_db/
 *.pyc
+users.db
+chat_history.db
+venv/

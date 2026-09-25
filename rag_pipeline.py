@@ -1,55 +1,30 @@
 import os
-
 from dotenv import load_dotenv
-
 from langchain_google_genai import ChatGoogleGenerativeAI
-
 from chroma import get_vector_db
 
-
-# --------------------------------
-# LOAD ENVIRONMENT VARIABLES
-# --------------------------------
-
+# Load environment variables
 load_dotenv()
 
 api_key = os.getenv("GOOGLE_API_KEY")
 
-
 if not api_key:
-    raise ValueError(
-        "GOOGLE_API_KEY not found in .env"
-    )
+    raise ValueError("GOOGLE_API_KEY not found in .env")
 
 
-# --------------------------------
-# GEMINI MODEL
-# --------------------------------
-
+# Gemini LLM
 llm = ChatGoogleGenerativeAI(
-    model="gemini-3.7-flash",
+    model="gemini-3.8-flash",
     google_api_key=api_key,
     temperature=0
 )
 
 
-# --------------------------------
-# ASK QUESTION
-# --------------------------------
-
 def ask_question(question):
-
-    # --------------------------------
-    # GET VECTOR DATABASE
-    # --------------------------------
-
+    # Get Chroma vector database
     vector_db = get_vector_db()
 
-
-    # --------------------------------
-    # RETRIEVER
-    # --------------------------------
-
+    # Create retriever
     retriever = vector_db.as_retriever(
         search_type="mmr",
         search_kwargs={
@@ -58,92 +33,46 @@ def ask_question(question):
         }
     )
 
-
-    # --------------------------------
-    # RETRIEVE RELEVANT CHUNKS
-    # --------------------------------
-
+    # Search relevant documents
     retrieved_docs = retriever.invoke(question)
 
-
-    # --------------------------------
-    # NO DOCUMENTS FOUND
-    # --------------------------------
-
+    # If no documents found
     if not retrieved_docs:
-
         return {
-            "answer": (
-                "I could not find the answer "
-                "in the provided sources."
-            ),
+            "answer": "I could not find the answer in the provided sources.",
             "sources": []
         }
 
-
-    # --------------------------------
-    # BUILD CONTEXT
-    # --------------------------------
-
+    # Prepare context
     context_parts = []
-
     sources = []
 
-
     for doc in retrieved_docs:
+        context_parts.append(doc.page_content)
 
-        # Add document content
-        context_parts.append(
-            doc.page_content
-        )
-
-
-        # Get metadata
         metadata = doc.metadata
 
-
-        # Get source/file name
         source = metadata.get(
             "file_name",
-            metadata.get(
-                "source",
-                "Unknown"
-            )
+            metadata.get("source", "Unknown")
         )
 
+        page = metadata.get("page", None)
 
-        # Get page number
-        page = metadata.get(
-            "page",
-            None
-        )
-
-
-        # Get source type
         source_type = metadata.get(
             "source_type",
             "unknown"
         )
 
-
-        # Store source information
         sources.append({
             "source": source,
             "page": page,
             "type": source_type
         })
 
+    context = "\n\n---\n\n".join(context_parts)
 
-    # Combine all chunks
-    context = "\n\n---\n\n".join(
-        context_parts
-    )
-
-
-    # --------------------------------
-    # PROMPT
-    # --------------------------------
-
+    # RAG prompt
     prompt = f"""
 You are an AI knowledge assistant.
 
@@ -171,51 +100,31 @@ USER QUESTION:
 {question}
 """
 
-
-    # --------------------------------
-    # GEMINI
-    # --------------------------------
-
+    # Generate answer using Gemini
     response = llm.invoke(prompt)
 
-
-    # --------------------------------
-    # EXTRACT ONLY TEXT FROM RESPONSE
-    # --------------------------------
-
+    # Extract response text
     if isinstance(response.content, str):
-
         answer = response.content
 
     else:
-
         answer_parts = []
-
 
         for block in response.content:
 
             if isinstance(block, dict):
 
                 if block.get("type") == "text":
-
                     answer_parts.append(
                         block.get("text", "")
                     )
 
             elif isinstance(block, str):
-
                 answer_parts.append(block)
 
+        answer = "\n".join(answer_parts)
 
-        answer = "\n".join(
-            answer_parts
-        )
-
-
-    # --------------------------------
-    # RETURN RESULT
-    # --------------------------------
-
+    # Return answer + sources
     return {
         "answer": answer,
         "sources": sources
